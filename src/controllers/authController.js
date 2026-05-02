@@ -1,4 +1,5 @@
-const { User } = require('../models');
+const bcrypt = require('bcryptjs');
+const prisma = require('../config/prisma');
 const { generarToken, generarRefreshToken, verificarRefreshToken } = require('../utils/jwt');
 const { success, error } = require('../utils/response');
 
@@ -6,28 +7,31 @@ const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    const usuario = await User.findOne({ where: { email: email.toLowerCase() } });
+    const usuario = await prisma.usuario.findUnique({
+      where: { email: email.toLowerCase() },
+    });
 
     if (!usuario || !usuario.activo) {
       return error(res, 'Credenciales incorrectas', 401);
     }
 
-    const passwordValida = await usuario.verificarPassword(password);
+    const passwordValida = await bcrypt.compare(password, usuario.password);
     if (!passwordValida) {
       return error(res, 'Credenciales incorrectas', 401);
     }
 
-    await usuario.update({ ultimo_acceso: new Date() });
+    await prisma.usuario.update({
+      where: { id: usuario.id },
+      data: { ultimoAcceso: new Date() },
+    });
 
     const payload = { id: usuario.id, email: usuario.email, rol: usuario.rol };
     const token = generarToken(payload);
     const refreshToken = generarRefreshToken(payload);
 
-    return success(res, {
-      token,
-      refreshToken,
-      usuario: usuario.toJSON(),
-    }, 'Sesión iniciada correctamente');
+    const { password: _, ...usuarioSinPassword } = usuario;
+
+    return success(res, { token, refreshToken, usuario: usuarioSinPassword }, 'Sesión iniciada correctamente');
   } catch (err) {
     next(err);
   }
@@ -37,24 +41,33 @@ const registro = async (req, res, next) => {
   try {
     const { nombre, apellido, email, password, rol } = req.body;
 
-    const existente = await User.findOne({ where: { email: email.toLowerCase() } });
+    const existente = await prisma.usuario.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
     if (existente) {
       return error(res, 'El correo ya está registrado', 409);
     }
 
-    const usuario = await User.create({
-      nombre,
-      apellido,
-      email: email.toLowerCase(),
-      password,
-      rol: rol || 'estudiante',
+    const hash = await bcrypt.hash(password, 12);
+
+    const usuario = await prisma.usuario.create({
+      data: {
+        nombre,
+        apellido,
+        email: email.toLowerCase(),
+        password: hash,
+        rol: rol || 'estudiante',
+      },
     });
 
     const payload = { id: usuario.id, email: usuario.email, rol: usuario.rol };
     const token = generarToken(payload);
     const refreshToken = generarRefreshToken(payload);
 
-    return success(res, { token, refreshToken, usuario: usuario.toJSON() }, 'Usuario creado exitosamente', 201);
+    const { password: _, ...usuarioSinPassword } = usuario;
+
+    return success(res, { token, refreshToken, usuario: usuarioSinPassword }, 'Usuario creado exitosamente', 201);
   } catch (err) {
     next(err);
   }
@@ -66,8 +79,8 @@ const refreshToken = async (req, res, next) => {
     if (!rt) return error(res, 'Refresh token requerido', 400);
 
     const decoded = verificarRefreshToken(rt);
-    const usuario = await User.findByPk(decoded.id);
 
+    const usuario = await prisma.usuario.findUnique({ where: { id: decoded.id } });
     if (!usuario || !usuario.activo) {
       return error(res, 'Usuario no válido', 401);
     }
@@ -82,7 +95,8 @@ const refreshToken = async (req, res, next) => {
 };
 
 const perfil = async (req, res) => {
-  return success(res, req.usuario.toJSON(), 'Perfil obtenido');
+  const { password: _, ...usuarioSinPassword } = req.usuario;
+  return success(res, usuarioSinPassword, 'Perfil obtenido');
 };
 
 module.exports = { login, registro, refreshToken, perfil };

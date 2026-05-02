@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Rol {
+  admin
+  estudiante
+  docente
+  bacteriologo
+}
+
+enum Semestre {
+  noveno
+  decimo
+}
+
+model Usuario {
+  id            String    @id @default(uuid())
+  nombre        String    @db.VarChar(100)
+  apellido      String    @db.VarChar(100)
+  email         String    @unique @db.VarChar(150)
+  password      String
+  rol            Rol       @default(estudiante)
+  esAdminDocente Boolean   @default(false) @map("es_admin_docente")
+  activo         Boolean   @default(true)
+  ultimoAcceso  DateTime? @map("ultimo_acceso")
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+
+  perfil                              Estudiante?  @relation("UsuarioEstudiante")
+  estudiantesSupervision              Estudiante[] @relation("DocenteSupervisor")
+  estudiantesSupervisionBacteriologo  Estudiante[] @relation("BacteriologoSupervisor")
+
+  @@map("usuarios")
+}
+
+model Entidad {
+  id            String    @id @default(uuid())
+  nombre        String    @db.VarChar(200)
+  direccion     String?   @db.VarChar(300)
+  ciudad        String?   @db.VarChar(100)
+  departamento  String?   @db.VarChar(100)
+  activo        Boolean   @default(true)
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+
+  estudiantes Estudiante[]
+  examenes    Examen[]
+
+  @@map("entidades")
+}
+
+model Examen {
+  id            String   @id @default(uuid())
+  nombre        String   @db.VarChar(200)
+  area          String?  @db.VarChar(100)
+  entidadId     String   @map("entidad_id")
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  entidad   Entidad          @relation(fields: [entidadId], references: [id])
+  registros RegistroExamen[]
+
+  @@map("examenes")
+}
+
+model Estudiante {
+  id                       String    @id @default(uuid())
+  usuarioId                String    @unique @map("usuario_id")
+  numeroDocumento          String    @unique @map("numero_documento") @db.VarChar(20)
+  semestre                 Semestre
+  entidadId                String?   @map("entidad_id")
+  docenteSupervisorId      String?   @map("docente_supervisor_id")
+  bacteriologoSupervisorId String?   @map("bacteriologo_supervisor_id")
+  fechaInicio              DateTime? @map("fecha_inicio") @db.Date
+  fechaFin                 DateTime? @map("fecha_fin") @db.Date
+  creadoEn                 DateTime  @default(now()) @map("creado_en")
+  actualizadoEn            DateTime  @updatedAt @map("actualizado_en")
+
+  usuario                 Usuario  @relation("UsuarioEstudiante", fields: [usuarioId], references: [id], onDelete: Cascade)
+  docenteSupervisor       Usuario? @relation("DocenteSupervisor", fields: [docenteSupervisorId], references: [id])
+  bacteriologoSupervisor  Usuario? @relation("BacteriologoSupervisor", fields: [bacteriologoSupervisorId], references: [id])
+  entidad                 Entidad? @relation(fields: [entidadId], references: [id])
+  registros               RegistroDiario[]
+
+  @@map("estudiantes")
+}
+
+model RegistroDiario {
+  id                     String    @id @default(uuid())
+  estudianteId           String    @map("estudiante_id")
+  fecha                  DateTime  @db.Date
+  horaEntrada            String?   @map("hora_entrada") @db.VarChar(5)
+  horaSalida             String?   @map("hora_salida")  @db.VarChar(5)
+  observaciones          String?
+  firmaEstudiante        String?   @map("firma_estudiante")
+  firmaEstudianteFecha   DateTime? @map("firma_estudiante_fecha")
+  firmaDocente           String?   @map("firma_docente")
+  firmaDocenteFecha      DateTime? @map("firma_docente_fecha")
+  firmaBacteriologo      String?   @map("firma_bacteriologo")
+  firmaBacteriologoFecha DateTime? @map("firma_bacteriologo_fecha")
+  firmado                Boolean   @default(false)
+  creadoEn               DateTime  @default(now()) @map("creado_en")
+  actualizadoEn          DateTime  @updatedAt @map("actualizado_en")
+
+  estudiante Estudiante      @relation(fields: [estudianteId], references: [id])
+  examenes   RegistroExamen[]
+
+  @@unique([estudianteId, fecha])
+  @@map("registros_diarios")
+}
+
+model RegistroExamen {
+  id         String @id @default(uuid())
+  registroId String @map("registro_id")
+  examenId   String @map("examen_id")
+  cantidad   Int    @default(1)
+
+  registro RegistroDiario @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  examen   Examen         @relation(fields: [examenId], references: [id])
+
+  @@unique([registroId, examenId])
+  @@map("registros_examenes")
+}

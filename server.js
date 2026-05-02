@@ -1,13 +1,13 @@
 require('dotenv').config();
 const app = require('./app');
-const { connectDB } = require('./src/config/database');
-require('./src/models');
+const prisma = require('./src/config/prisma');
 
 const PORT = process.env.PORT || 3001;
 
 const iniciar = async () => {
   try {
-    await connectDB();
+    await prisma.$connect();
+    console.log('✅ Conexión a Supabase establecida');
     app.listen(PORT, () => {
       console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
       console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);

@@ -1,21 +1,25 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-const { sequelize } = require('../config/database');
-const { User } = require('../models');
+require('dotenv').config();
+const bcrypt = require('bcryptjs');
+const prisma = require('../config/prisma');
 
 const seed = async () => {
   try {
-    await sequelize.authenticate();
+    const adminExiste = await prisma.usuario.findUnique({
+      where: { email: 'admin@unipamplona.edu.co' },
+    });
 
-    const adminExiste = await User.findOne({ where: { email: 'admin@unipamplona.edu.co' } });
     if (!adminExiste) {
-      await User.create({
-        nombre: 'Administrador',
-        apellido: 'Sistema',
-        email: 'admin@unipamplona.edu.co',
-        password: 'Admin1234!',
-        rol: 'admin',
+      const hash = await bcrypt.hash('Admin1234!', 12);
+      await prisma.usuario.create({
+        data: {
+          nombre: 'Administrador',
+          apellido: 'Sistema',
+          email: 'admin@unipamplona.edu.co',
+          password: hash,
+          rol: 'admin',
+        },
       });
-      console.log('✅ Usuario admin creado: admin@unipamplona.edu.co / Admin1234!');
+      console.log('✅ Admin creado: admin@unipamplona.edu.co / Admin1234!');
     } else {
       console.log('ℹ️  Admin ya existe');
     }

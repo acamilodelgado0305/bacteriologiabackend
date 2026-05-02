@@ -1,5 +1,5 @@
 const { verificarToken } = require('../utils/jwt');
-const { User } = require('../models');
+const prisma = require('../config/prisma');
 const { error } = require('../utils/response');
 
 const autenticar = async (req, res, next) => {
@@ -13,7 +13,7 @@ const autenticar = async (req, res, next) => {
 
   try {
     const decoded = verificarToken(token);
-    const usuario = await User.findByPk(decoded.id);
+    const usuario = await prisma.usuario.findUnique({ where: { id: decoded.id } });
 
     if (!usuario || !usuario.activo) {
       return error(res, 'Usuario no encontrado o inactivo', 401);
@@ -28,10 +28,12 @@ const autenticar = async (req, res, next) => {
 
 const autorizar = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.usuario.rol)) {
-      return error(res, 'No tienes permisos para esta acción', 403);
+    const { rol, esAdminDocente } = req.usuario;
+    // Un docente con esAdminDocente puede acceder a cualquier ruta que admita 'admin'
+    if (roles.includes(rol) || (esAdminDocente && roles.includes('admin'))) {
+      return next();
     }
-    next();
+    return error(res, 'No tienes permisos para esta acción', 403);
   };
 };
 

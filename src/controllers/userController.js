@@ -1,4 +1,5 @@
-const { User, Estudiante } = require('../models');
+const bcrypt = require('bcryptjs');
+const prisma = require('../config/prisma');
 const { success, error } = require('../utils/response');
 
 const listarUsuarios = async (req, res, next) => {
@@ -8,9 +9,14 @@ const listarUsuarios = async (req, res, next) => {
     if (rol) where.rol = rol;
     if (activo !== undefined) where.activo = activo === 'true';
 
-    const usuarios = await User.findAll({
+    const usuarios = await prisma.usuario.findMany({
       where,
-      order: [['created_at', 'DESC']],
+      orderBy: { creadoEn: 'desc' },
+      select: {
+        id: true, nombre: true, apellido: true,
+        email: true, rol: true, esAdminDocente: true,
+        activo: true, ultimoAcceso: true, creadoEn: true,
+      },
     });
 
     return success(res, usuarios);
@@ -21,12 +27,17 @@ const listarUsuarios = async (req, res, next) => {
 
 const obtenerUsuario = async (req, res, next) => {
   try {
-    const usuario = await User.findByPk(req.params.id, {
-      include: [{ model: Estudiante, as: 'perfil_estudiante' }],
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, nombre: true, apellido: true,
+        email: true, rol: true, activo: true,
+        ultimoAcceso: true, creadoEn: true,
+        perfil: true,
+      },
     });
 
     if (!usuario) return error(res, 'Usuario no encontrado', 404);
-
     return success(res, usuario);
   } catch (err) {
     next(err);
@@ -35,45 +46,78 @@ const obtenerUsuario = async (req, res, next) => {
 
 const actualizarUsuario = async (req, res, next) => {
   try {
-    const usuario = await User.findByPk(req.params.id);
-    if (!usuario) return error(res, 'Usuario no encontrado', 404);
-
-    const camposPermitidos = ['nombre', 'apellido', 'activo'];
-    if (req.usuario.rol === 'admin') camposPermitidos.push('rol');
-
+    const { id } = req.params;
     const datos = {};
-    camposPermitidos.forEach((campo) => {
+
+    ['nombre', 'apellido'].forEach((campo) => {
       if (req.body[campo] !== undefined) datos[campo] = req.body[campo];
     });
 
-    await usuario.update(datos);
-    return success(res, usuario.toJSON(), 'Usuario actualizado');
+    if (req.usuario.rol === 'admin' || req.usuario.esAdminDocente) {
+      if (req.body.activo !== undefined) datos.activo = req.body.activo;
+      if (req.body.rol !== undefined) datos.rol = req.body.rol;
+      if (req.body.esAdminDocente !== undefined) datos.esAdminDocente = req.body.esAdminDocente;
+    }
+
+    const usuario = await prisma.usuario.update({
+      where: { id },
+      data: datos,
+      select: {
+        id: true, nombre: true, apellido: true,
+        email: true, rol: true, esAdminDocente: true, activo: true,
+      },
+    });
+
+    return success(res, usuario, 'Usuario actualizado');
   } catch (err) {
+    if (err.code === 'P2025') return error(res, 'Usuario no encontrado', 404);
     next(err);
   }
 };
 
 const cambiarPassword = async (req, res, next) => {
   try {
-    const usuario = await User.findByPk(req.params.id);
-    if (!usuario) return error(res, 'Usuario no encontrado', 404);
+    const { id } = req.params;
+    const { password_actual, password_nueva } = req.body;
 
-    if (req.usuario.rol !== 'admin' && req.usuario.id !== usuario.id) {
+    if (req.usuario.rol !== 'admin' && req.usuario.id !== id) {
       return error(res, 'No autorizado', 403);
     }
 
-    const { password_actual, password_nueva } = req.body;
-
     if (req.usuario.rol !== 'admin') {
-      const valida = await usuario.verificarPassword(password_actual);
+      const usuario = await prisma.usuario.findUnique({ where: { id } });
+      if (!usuario) return error(res, 'Usuario no encontrado', 404);
+      const valida = await bcrypt.compare(password_actual, usuario.password);
       if (!valida) return error(res, 'Contraseña actual incorrecta', 400);
     }
 
-    await usuario.update({ password: password_nueva });
+    const hash = await bcrypt.hash(password_nueva, 12);
+    await prisma.usuario.update({ where: { id }, data: { password: hash } });
+
     return success(res, null, 'Contraseña actualizada');
+  } catch (err) {
+    if (err.code === 'P2025') return error(res, 'Usuario no encontrado', 404);
+    next(err);
+  }
+};
+
+const crearUsuario = async (req, res, next) => {
+  try {
+    const { nombre, apellido, email, password, rol } = req.body;
+
+    const existente = await prisma.usuario.findUnique({ where: { email: email.toLowerCase() } });
+    if (existente) return error(res, 'El correo ya está registrado', 409);
+
+    const hash = await bcrypt.hash(password, 12);
+    const usuario = await prisma.usuario.create({
+      data: { nombre, apellido, email: email.toLowerCase(), password: hash, rol },
+      select: { id: true, nombre: true, apellido: true, email: true, rol: true, activo: true, creadoEn: true },
+    });
+
+    return success(res, usuario, 'Usuario creado exitosamente', 201);
   } catch (err) {
     next(err);
   }
 };
 
-module.exports = { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword };
+module.exports = { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario };
