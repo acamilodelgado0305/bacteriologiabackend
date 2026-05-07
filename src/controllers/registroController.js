@@ -2,7 +2,9 @@ const { randomUUID } = require('crypto');
 const prisma = require('../config/prisma');
 const { success, error } = require('../utils/response');
 
-// Perfil completo del estudiante actual (entidad + examenes disponibles)
+const supervisorSelect = { select: { id: true, nombre: true, apellido: true } };
+
+// Perfil completo del estudiante actual (entidad + examenes disponibles + personal de la entidad)
 const miPerfil = async (req, res, next) => {
   try {
     const estudiante = await prisma.estudiante.findUnique({
@@ -14,13 +16,14 @@ const miPerfil = async (req, res, next) => {
               where: { activo: true },
               orderBy: [{ area: 'asc' }, { nombre: 'asc' }],
             },
+            personal: {
+              include: {
+                usuario: {
+                  select: { id: true, nombre: true, apellido: true, rol: true },
+                },
+              },
+            },
           },
-        },
-        docenteSupervisor: {
-          select: { id: true, nombre: true, apellido: true },
-        },
-        bacteriologoSupervisor: {
-          select: { id: true, nombre: true, apellido: true },
         },
       },
     });
@@ -32,21 +35,42 @@ const miPerfil = async (req, res, next) => {
   }
 };
 
-// Guardar (crear o actualizar) el registro de un día, con firma del estudiante incluida
+// Guardar (crear o actualizar) el registro de un día, con supervisores del día y firma del estudiante
 const guardar = async (req, res, next) => {
   try {
-    const { fecha, examenes = [], observaciones, firma, horaEntrada, horaSalida } = req.body;
+    const {
+      fecha, examenes = [], observaciones, firma, horaEntrada, horaSalida,
+      docenteSupervisorId, bacteriologoSupervisorId,
+    } = req.body;
 
     const estudiante = await prisma.estudiante.findUnique({
       where: { usuarioId: req.usuario.id },
+      include: { entidad: true },
     });
     if (!estudiante) return error(res, 'Perfil de estudiante no encontrado', 404);
+    if (!estudiante.entidadId) return error(res, 'No tienes una entidad asignada', 400);
+
+    // Validar que el docente pertenece a la entidad (si se envía)
+    if (docenteSupervisorId) {
+      const asociacion = await prisma.entidadPersonal.findUnique({
+        where: { entidadId_usuarioId: { entidadId: estudiante.entidadId, usuarioId: docenteSupervisorId } },
+      });
+      if (!asociacion) return error(res, 'El docente seleccionado no pertenece a esta entidad', 400);
+    }
+
+    // Validar que el bacteriólogo pertenece a la entidad (si se envía)
+    if (bacteriologoSupervisorId) {
+      const asociacion = await prisma.entidadPersonal.findUnique({
+        where: { entidadId_usuarioId: { entidadId: estudiante.entidadId, usuarioId: bacteriologoSupervisorId } },
+      });
+      if (!asociacion) return error(res, 'El bacteriólogo seleccionado no pertenece a esta entidad', 400);
+    }
 
     const fechaDate = new Date(fecha + 'T12:00:00Z');
 
     const resultado = await prisma.$transaction(async (tx) => {
       let registro = await tx.registroDiario.findFirst({
-        where: { estudianteId: estudiante.id, fecha: fechaDate },
+        where: { estudianteId: estudiante.id, fecha: fechaDate, cierreId: null },
       });
 
       if (registro?.firmado) {
@@ -64,6 +88,8 @@ const guardar = async (req, res, next) => {
             observaciones: observaciones || null,
             horaEntrada: horaEntrada || null,
             horaSalida: horaSalida || null,
+            docenteSupervisorId: docenteSupervisorId || null,
+            bacteriologoSupervisorId: bacteriologoSupervisorId || null,
           },
         });
       } else {
@@ -75,6 +101,8 @@ const guardar = async (req, res, next) => {
             horaEntrada: horaEntrada || null,
             horaSalida: horaSalida || null,
             observaciones: observaciones || null,
+            docenteSupervisorId: docenteSupervisorId || null,
+            bacteriologoSupervisorId: bacteriologoSupervisorId || null,
           },
         });
       }
@@ -101,6 +129,8 @@ const guardar = async (req, res, next) => {
       return tx.registroDiario.findUnique({
         where: { id: registro.id },
         include: {
+          docenteSupervisor: supervisorSelect,
+          bacteriologoSupervisor: supervisorSelect,
           examenes: {
             include: { examen: { select: { id: true, nombre: true, area: true } } },
           },
@@ -129,8 +159,10 @@ const obtenerPorFecha = async (req, res, next) => {
     const fechaDate = new Date(fecha + 'T12:00:00Z');
 
     const registro = await prisma.registroDiario.findFirst({
-      where: { estudianteId: estudiante.id, fecha: fechaDate },
+      where: { estudianteId: estudiante.id, fecha: fechaDate, cierreId: null },
       include: {
+        docenteSupervisor: supervisorSelect,
+        bacteriologoSupervisor: supervisorSelect,
         examenes: {
           include: { examen: { select: { id: true, nombre: true, area: true } } },
         },
@@ -152,9 +184,11 @@ const miHistorial = async (req, res, next) => {
     if (!estudiante) return error(res, 'Perfil de estudiante no encontrado', 404);
 
     const registros = await prisma.registroDiario.findMany({
-      where: { estudianteId: estudiante.id },
+      where: { estudianteId: estudiante.id, cierreId: null },
       orderBy: { fecha: 'desc' },
       include: {
+        docenteSupervisor: supervisorSelect,
+        bacteriologoSupervisor: supervisorSelect,
         examenes: {
           include: { examen: { select: { nombre: true, area: true } } },
         },
@@ -171,7 +205,7 @@ const miHistorial = async (req, res, next) => {
 const listar = async (req, res, next) => {
   try {
     const { estudianteId, desde, hasta } = req.query;
-    const where = {};
+    const where = { cierreId: null };
     if (estudianteId) where.estudianteId = estudianteId;
     if (desde || hasta) {
       where.fecha = {};
@@ -189,6 +223,8 @@ const listar = async (req, res, next) => {
             entidad: { select: { nombre: true } },
           },
         },
+        docenteSupervisor: supervisorSelect,
+        bacteriologoSupervisor: supervisorSelect,
         examenes: {
           include: { examen: { select: { nombre: true, area: true } } },
         },
@@ -204,8 +240,8 @@ const listar = async (req, res, next) => {
 const firmar = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firma } = req.body;
-    const rol = req.usuario.rol;
+    const { firma, nombreFirmante } = req.body;
+    const { id: usuarioId, rol } = req.usuario;
 
     if (!firma) return error(res, 'La firma es requerida', 400);
 
@@ -216,7 +252,7 @@ const firmar = async (req, res, next) => {
     const data = {};
 
     if (rol === 'estudiante') {
-      const estudiante = await prisma.estudiante.findUnique({ where: { usuarioId: req.usuario.id } });
+      const estudiante = await prisma.estudiante.findUnique({ where: { usuarioId } });
       if (!estudiante || registro.estudianteId !== estudiante.id)
         return error(res, 'No autorizado para firmar este registro', 403);
       if (registro.firmaEstudiante) return error(res, 'Ya firmaste este registro', 400);
@@ -224,14 +260,21 @@ const firmar = async (req, res, next) => {
       data.firmaEstudianteFecha = new Date();
 
     } else if (rol === 'docente') {
+      if (registro.docenteSupervisorId !== usuarioId)
+        return error(res, 'No eres el docente supervisor asignado a este registro', 403);
       if (registro.firmaDocente) return error(res, 'El docente ya firmó este registro', 400);
       data.firmaDocente = firma;
       data.firmaDocenteFecha = new Date();
 
     } else if (rol === 'bacteriologo') {
+      if (registro.bacteriologoSupervisorId !== usuarioId)
+        return error(res, 'No eres el bacteriólogo supervisor asignado a este registro', 403);
       if (registro.firmaBacteriologo) return error(res, 'El bacteriólogo ya firmó este registro', 400);
+      if (!nombreFirmante?.trim()) return error(res, 'El nombre del firmante es requerido', 400);
       data.firmaBacteriologo = firma;
       data.firmaBacteriologoFecha = new Date();
+      data.nombreFirmanteBacteriologo = nombreFirmante.trim();
+
     } else {
       return error(res, 'No tienes permiso para firmar registros', 403);
     }
@@ -253,14 +296,14 @@ const firmar = async (req, res, next) => {
 const pendientesFirma = async (req, res, next) => {
   try {
     const { id: usuarioId, rol } = req.usuario;
-    const where = { firmado: false };
+    const where = { firmado: false, cierreId: null };
 
     if (rol === 'docente') {
       where.firmaDocente = null;
-      where.estudiante = { docenteSupervisorId: usuarioId };
+      where.docenteSupervisorId = usuarioId;
     } else if (rol === 'bacteriologo') {
       where.firmaBacteriologo = null;
-      where.estudiante = { bacteriologoSupervisorId: usuarioId };
+      where.bacteriologoSupervisorId = usuarioId;
     }
 
     const registros = await prisma.registroDiario.findMany({
@@ -273,6 +316,8 @@ const pendientesFirma = async (req, res, next) => {
             entidad: { select: { nombre: true } },
           },
         },
+        docenteSupervisor: supervisorSelect,
+        bacteriologoSupervisor: supervisorSelect,
         examenes: {
           include: { examen: { select: { nombre: true, area: true } } },
         },
@@ -285,16 +330,16 @@ const pendientesFirma = async (req, res, next) => {
   }
 };
 
-// Todos los registros de los estudiantes asignados al supervisor (docente o bacteriologo)
+// Todos los registros asignados al supervisor (docente o bacteriologo) en este sistema
 const misSupervisados = async (req, res, next) => {
   try {
     const { id: usuarioId, rol } = req.usuario;
-    const where = {};
+    const where = { cierreId: null };
 
     if (rol === 'docente') {
-      where.estudiante = { docenteSupervisorId: usuarioId };
+      where.docenteSupervisorId = usuarioId;
     } else if (rol === 'bacteriologo') {
-      where.estudiante = { bacteriologoSupervisorId: usuarioId };
+      where.bacteriologoSupervisorId = usuarioId;
     } else {
       return error(res, 'No autorizado', 403);
     }
@@ -309,6 +354,8 @@ const misSupervisados = async (req, res, next) => {
             entidad: { select: { nombre: true } },
           },
         },
+        docenteSupervisor: supervisorSelect,
+        bacteriologoSupervisor: supervisorSelect,
         examenes: {
           include: { examen: { select: { nombre: true, area: true } } },
         },

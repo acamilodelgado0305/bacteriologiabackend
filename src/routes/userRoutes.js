@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { body } = require('express-validator');
-const { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario } = require('../controllers/userController');
+const { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario, entidadesDeUsuario } = require('../controllers/userController');
 const { autenticar, autorizar } = require('../middleware/auth');
 const { validar } = require('../middleware/validate');
 
@@ -22,6 +22,7 @@ router.post('/',
 );
 
 router.get('/:id', obtenerUsuario);
+router.get('/:id/entidades', autorizar('admin', 'docente'), entidadesDeUsuario);
 
 router.put('/:id',
   [

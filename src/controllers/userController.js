@@ -120,4 +120,22 @@ const crearUsuario = async (req, res, next) => {
   }
 };
 
-module.exports = { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario };
+const entidadesDeUsuario = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const asociaciones = await prisma.entidadPersonal.findMany({
+      where: { usuarioId: id },
+      include: {
+        entidad: {
+          select: { id: true, nombre: true, ciudad: true, activo: true },
+        },
+      },
+      orderBy: { creadoEn: 'desc' },
+    });
+    return success(res, asociaciones.map((a) => a.entidad));
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario, entidadesDeUsuario };

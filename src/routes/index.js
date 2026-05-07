@@ -8,6 +8,7 @@ router.use('/entidades', require('./entidadRoutes'));
 router.use('/entidades/:entidadId/examenes', require('./examenRoutes'));
 router.use('/estudiantes', require('./estudianteRoutes'));
 router.use('/registros', require('./registroRoutes'));
+router.use('/cierres', require('./cierreRoutes'));
 
 router.get('/estadisticas', autenticar, obtener);
 

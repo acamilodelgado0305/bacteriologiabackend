@@ -26,6 +26,14 @@ const obtener = async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         examenes: { where: { activo: true }, orderBy: { area: 'asc' } },
+        personal: {
+          include: {
+            usuario: {
+              select: { id: true, nombre: true, apellido: true, email: true, rol: true, activo: true },
+            },
+          },
+          orderBy: [{ usuario: { rol: 'asc' } }, { usuario: { apellido: 'asc' } }],
+        },
         _count: { select: { estudiantes: true } },
       },
     });
@@ -65,4 +73,26 @@ const actualizar = async (req, res, next) => {
   }
 };
 
-module.exports = { listar, obtener, crear, actualizar };
+const eliminar = async (req, res, next) => {
+  try {
+    const entidad = await prisma.entidad.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { estudiantes: true, examenes: true } } },
+    });
+    if (!entidad) return error(res, 'Entidad no encontrada', 404);
+
+    const tieneData = entidad._count.estudiantes > 0 || entidad._count.examenes > 0;
+
+    if (tieneData) {
+      await prisma.entidad.update({ where: { id: req.params.id }, data: { activo: false } });
+      return success(res, { eliminado: false }, 'Entidad desactivada exitosamente');
+    }
+
+    await prisma.entidad.delete({ where: { id: req.params.id } });
+    return success(res, { eliminado: true }, 'Entidad eliminada permanentemente');
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { listar, obtener, crear, actualizar, eliminar };

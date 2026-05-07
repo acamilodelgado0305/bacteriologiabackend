@@ -2,12 +2,10 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { success, error } = require('../utils/response');
 
-const supervisorSelect = { select: { id: true, nombre: true, apellido: true } };
-
 const listar = async (req, res, next) => {
   try {
     const { entidadId, semestre } = req.query;
-    const where = {};
+    const where = { cierreId: null };
     if (entidadId) where.entidadId = entidadId;
     if (semestre) where.semestre = semestre;
 
@@ -19,8 +17,6 @@ const listar = async (req, res, next) => {
           select: { id: true, nombre: true, apellido: true, email: true, activo: true },
         },
         entidad: { select: { id: true, nombre: true, ciudad: true } },
-        docenteSupervisor: supervisorSelect,
-        bacteriologoSupervisor: supervisorSelect,
       },
     });
     return success(res, estudiantes);
@@ -35,9 +31,15 @@ const obtener = async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true, email: true, activo: true } },
-        entidad: true,
-        docenteSupervisor: { select: { id: true, nombre: true, apellido: true, email: true } },
-        bacteriologoSupervisor: { select: { id: true, nombre: true, apellido: true, email: true } },
+        entidad: {
+          include: {
+            personal: {
+              include: {
+                usuario: { select: { id: true, nombre: true, apellido: true, rol: true } },
+              },
+            },
+          },
+        },
       },
     });
     if (!estudiante) return error(res, 'Estudiante no encontrado', 404);
@@ -52,8 +54,7 @@ const crear = async (req, res, next) => {
     const {
       nombre, apellido, email, password,
       numeroDocumento, semestre,
-      entidadId, docenteSupervisorId, bacteriologoSupervisorId,
-      fechaInicio, fechaFin,
+      entidadId, fechaInicio, fechaFin,
     } = req.body;
 
     const emailExiste = await prisma.usuario.findUnique({
@@ -85,16 +86,12 @@ const crear = async (req, res, next) => {
           numeroDocumento,
           semestre,
           entidadId: entidadId || null,
-          docenteSupervisorId: docenteSupervisorId || null,
-          bacteriologoSupervisorId: bacteriologoSupervisorId || null,
           fechaInicio: fechaInicio ? new Date(fechaInicio) : null,
           fechaFin: fechaFin ? new Date(fechaFin) : null,
         },
         include: {
           usuario: { select: { id: true, nombre: true, apellido: true, email: true } },
           entidad: { select: { id: true, nombre: true } },
-          docenteSupervisor: supervisorSelect,
-          bacteriologoSupervisor: supervisorSelect,
         },
       });
 
@@ -111,8 +108,7 @@ const actualizar = async (req, res, next) => {
   try {
     const { id } = req.params;
     const {
-      semestre, entidadId, docenteSupervisorId, bacteriologoSupervisorId,
-      fechaInicio, fechaFin, activo, nombre, apellido,
+      semestre, entidadId, fechaInicio, fechaFin, activo, nombre, apellido,
     } = req.body;
 
     await prisma.$transaction(async (tx) => {
@@ -122,8 +118,6 @@ const actualizar = async (req, res, next) => {
       const dataEstudiante = {};
       if (semestre) dataEstudiante.semestre = semestre;
       if (entidadId !== undefined) dataEstudiante.entidadId = entidadId || null;
-      if (docenteSupervisorId !== undefined) dataEstudiante.docenteSupervisorId = docenteSupervisorId || null;
-      if (bacteriologoSupervisorId !== undefined) dataEstudiante.bacteriologoSupervisorId = bacteriologoSupervisorId || null;
       if (fechaInicio !== undefined) dataEstudiante.fechaInicio = fechaInicio ? new Date(fechaInicio) : null;
       if (fechaFin !== undefined) dataEstudiante.fechaFin = fechaFin ? new Date(fechaFin) : null;
 
@@ -146,8 +140,6 @@ const actualizar = async (req, res, next) => {
       include: {
         usuario: { select: { id: true, nombre: true, apellido: true, email: true, activo: true } },
         entidad: { select: { id: true, nombre: true } },
-        docenteSupervisor: supervisorSelect,
-        bacteriologoSupervisor: supervisorSelect,
       },
     });
 

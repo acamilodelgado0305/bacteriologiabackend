@@ -33,9 +33,10 @@ model Usuario {
   creadoEn      DateTime  @default(now()) @map("creado_en")
   actualizadoEn DateTime  @updatedAt @map("actualizado_en")
 
-  perfil                              Estudiante?  @relation("UsuarioEstudiante")
-  estudiantesSupervision              Estudiante[] @relation("DocenteSupervisor")
-  estudiantesSupervisionBacteriologo  Estudiante[] @relation("BacteriologoSupervisor")
+  perfil                  Estudiante?       @relation("UsuarioEstudiante")
+  entidadesPersonal       EntidadPersonal[]
+  registrosComoDocente    RegistroDiario[]  @relation("DocenteRegistro")
+  registrosComoBacteriologo RegistroDiario[] @relation("BacteriologoRegistro")
 
   @@map("usuarios")
 }
@@ -52,8 +53,22 @@ model Entidad {
 
   estudiantes Estudiante[]
   examenes    Examen[]
+  personal    EntidadPersonal[]
 
   @@map("entidades")
+}
+
+model EntidadPersonal {
+  id        String   @id @default(uuid())
+  entidadId String   @map("entidad_id")
+  usuarioId String   @map("usuario_id")
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  entidad Entidad @relation(fields: [entidadId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([entidadId, usuarioId])
+  @@map("entidad_personal")
 }
 
 model Examen {
@@ -72,46 +87,67 @@ model Examen {
 }
 
 model Estudiante {
-  id                       String    @id @default(uuid())
-  usuarioId                String    @unique @map("usuario_id")
-  numeroDocumento          String    @unique @map("numero_documento") @db.VarChar(20)
-  semestre                 Semestre
-  entidadId                String?   @map("entidad_id")
-  docenteSupervisorId      String?   @map("docente_supervisor_id")
-  bacteriologoSupervisorId String?   @map("bacteriologo_supervisor_id")
-  fechaInicio              DateTime? @map("fecha_inicio") @db.Date
-  fechaFin                 DateTime? @map("fecha_fin") @db.Date
-  creadoEn                 DateTime  @default(now()) @map("creado_en")
-  actualizadoEn            DateTime  @updatedAt @map("actualizado_en")
+  id              String    @id @default(uuid())
+  usuarioId       String    @unique @map("usuario_id")
+  numeroDocumento String    @unique @map("numero_documento") @db.VarChar(20)
+  semestre        Semestre
+  entidadId       String?   @map("entidad_id")
+  cierreId        String?   @map("cierre_id")
+  fechaInicio     DateTime? @map("fecha_inicio") @db.Date
+  fechaFin        DateTime? @map("fecha_fin") @db.Date
+  creadoEn        DateTime  @default(now()) @map("creado_en")
+  actualizadoEn   DateTime  @updatedAt @map("actualizado_en")
 
-  usuario                 Usuario  @relation("UsuarioEstudiante", fields: [usuarioId], references: [id], onDelete: Cascade)
-  docenteSupervisor       Usuario? @relation("DocenteSupervisor", fields: [docenteSupervisorId], references: [id])
-  bacteriologoSupervisor  Usuario? @relation("BacteriologoSupervisor", fields: [bacteriologoSupervisorId], references: [id])
-  entidad                 Entidad? @relation(fields: [entidadId], references: [id])
-  registros               RegistroDiario[]
+  usuario   Usuario         @relation("UsuarioEstudiante", fields: [usuarioId], references: [id], onDelete: Cascade)
+  entidad   Entidad?        @relation(fields: [entidadId], references: [id])
+  cierre    CierreSemestre? @relation(fields: [cierreId], references: [id])
+  registros RegistroDiario[]
 
   @@map("estudiantes")
 }
 
-model RegistroDiario {
-  id                     String    @id @default(uuid())
-  estudianteId           String    @map("estudiante_id")
-  fecha                  DateTime  @db.Date
-  horaEntrada            String?   @map("hora_entrada") @db.VarChar(5)
-  horaSalida             String?   @map("hora_salida")  @db.VarChar(5)
-  observaciones          String?
-  firmaEstudiante        String?   @map("firma_estudiante")
-  firmaEstudianteFecha   DateTime? @map("firma_estudiante_fecha")
-  firmaDocente           String?   @map("firma_docente")
-  firmaDocenteFecha      DateTime? @map("firma_docente_fecha")
-  firmaBacteriologo      String?   @map("firma_bacteriologo")
-  firmaBacteriologoFecha DateTime? @map("firma_bacteriologo_fecha")
-  firmado                Boolean   @default(false)
-  creadoEn               DateTime  @default(now()) @map("creado_en")
-  actualizadoEn          DateTime  @updatedAt @map("actualizado_en")
+model CierreSemestre {
+  id               String   @id @default(uuid())
+  nombre           String   @db.VarChar(200)
+  descripcion      String?
+  fechaCierre      DateTime @default(now()) @map("fecha_cierre")
+  totalEstudiantes Int      @default(0) @map("total_estudiantes")
+  totalRegistros   Int      @default(0) @map("total_registros")
+  creadoEn         DateTime @default(now()) @map("creado_en")
 
-  estudiante Estudiante      @relation(fields: [estudianteId], references: [id])
-  examenes   RegistroExamen[]
+  registros   RegistroDiario[]
+  estudiantes Estudiante[]
+
+  @@map("cierres_semestre")
+}
+
+model RegistroDiario {
+  id                       String    @id @default(uuid())
+  estudianteId             String    @map("estudiante_id")
+  docenteSupervisorId      String?   @map("docente_supervisor_id")
+  bacteriologoSupervisorId String?   @map("bacteriologo_supervisor_id")
+  cierreId                 String?   @map("cierre_id")
+  fecha                    DateTime  @db.Date
+  horaEntrada              String?   @map("hora_entrada") @db.VarChar(5)
+  horaSalida               String?   @map("hora_salida")  @db.VarChar(5)
+  observaciones            String?
+  firmaEstudiante          String?   @map("firma_estudiante")
+  firmaEstudianteFecha     DateTime? @map("firma_estudiante_fecha")
+  firmaDocente                  String?   @map("firma_docente")
+  firmaDocenteFecha             DateTime? @map("firma_docente_fecha")
+  nombreFirmanteDocente         String?   @map("nombre_firmante_docente")
+  firmaBacteriologo             String?   @map("firma_bacteriologo")
+  firmaBacteriologoFecha        DateTime? @map("firma_bacteriologo_fecha")
+  nombreFirmanteBacteriologo    String?   @map("nombre_firmante_bacteriologo")
+  firmado                       Boolean   @default(false)
+  creadoEn                 DateTime  @default(now()) @map("creado_en")
+  actualizadoEn            DateTime  @updatedAt @map("actualizado_en")
+
+  estudiante           Estudiante      @relation(fields: [estudianteId], references: [id])
+  docenteSupervisor    Usuario?        @relation("DocenteRegistro", fields: [docenteSupervisorId], references: [id])
+  bacteriologoSupervisor Usuario?      @relation("BacteriologoRegistro", fields: [bacteriologoSupervisorId], references: [id])
+  cierre               CierreSemestre? @relation(fields: [cierreId], references: [id])
+  examenes             RegistroExamen[]
 
   @@unique([estudianteId, fecha])
   @@map("registros_diarios")
