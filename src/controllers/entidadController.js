@@ -11,7 +11,7 @@ const listar = async (req, res, next) => {
       where,
       orderBy: { nombre: 'asc' },
       include: {
-        _count: { select: { estudiantes: true, examenes: true } },
+        _count: { select: { estudiantes: { where: { cierreId: null } }, examenes: true } },
       },
     });
     return success(res, entidades);
@@ -34,7 +34,7 @@ const obtener = async (req, res, next) => {
           },
           orderBy: [{ usuario: { rol: 'asc' } }, { usuario: { apellido: 'asc' } }],
         },
-        _count: { select: { estudiantes: true } },
+        _count: { select: { estudiantes: { where: { cierreId: null } } } },
       },
     });
     if (!entidad) return error(res, 'Entidad no encontrada', 404);
@@ -75,22 +75,29 @@ const actualizar = async (req, res, next) => {
 
 const eliminar = async (req, res, next) => {
   try {
+    const { id } = req.params;
     const entidad = await prisma.entidad.findUnique({
-      where: { id: req.params.id },
-      include: { _count: { select: { estudiantes: true, examenes: true } } },
+      where: { id },
+      include: { examenes: { select: { id: true } } },
     });
     if (!entidad) return error(res, 'Entidad no encontrada', 404);
 
-    const tieneData = entidad._count.estudiantes > 0 || entidad._count.examenes > 0;
+    await prisma.$transaction(async (tx) => {
+      // Borrar registros de exámenes asociados a los exámenes de esta entidad
+      if (entidad.examenes.length > 0) {
+        const examenIds = entidad.examenes.map((e) => e.id);
+        await tx.registroExamen.deleteMany({ where: { examenId: { in: examenIds } } });
+        await tx.examen.deleteMany({ where: { entidadId: id } });
+      }
+      // Desvincular estudiantes (entidadId → null)
+      await tx.estudiante.updateMany({ where: { entidadId: id }, data: { entidadId: null } });
+      // Eliminar entidad (EntidadPersonal cascadea automáticamente)
+      await tx.entidad.delete({ where: { id } });
+    });
 
-    if (tieneData) {
-      await prisma.entidad.update({ where: { id: req.params.id }, data: { activo: false } });
-      return success(res, { eliminado: false }, 'Entidad desactivada exitosamente');
-    }
-
-    await prisma.entidad.delete({ where: { id: req.params.id } });
     return success(res, { eliminado: true }, 'Entidad eliminada permanentemente');
   } catch (err) {
+    if (err.code === 'P2025') return error(res, 'Entidad no encontrada', 404);
     next(err);
   }
 };

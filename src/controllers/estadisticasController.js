@@ -12,13 +12,14 @@ const obtener = async (req, res, next) => {
 
     /* ─── ESTUDIANTE ─── */
     if (rol === 'estudiante') {
-      const estudiante = await prisma.estudiante.findUnique({ where: { usuarioId } });
+      const estudiante = await prisma.estudiante.findFirst({
+        where: { usuarioId, cierreId: null },
+      });
       if (!estudiante) {
         return success(res, { examenesHoy: 0, examenesSemana: 0, examenesMes: 0, diasEnPractica: 0, actividadReciente: [] });
       }
 
       const fechaHoy = new Date(ahora.toISOString().split('T')[0] + 'T12:00:00Z');
-
       const diaSemana = ahora.getDay() === 0 ? 6 : ahora.getDay() - 1;
       const inicioSemana = new Date(ahora);
       inicioSemana.setDate(ahora.getDate() - diaSemana);
@@ -43,9 +44,7 @@ const obtener = async (req, res, next) => {
           orderBy: { fecha: 'desc' },
           take: 5,
           include: {
-            examenes: {
-              include: { examen: { select: { nombre: true, area: true } } },
-            },
+            examenes: { include: { examen: { select: { nombre: true, area: true } } } },
           },
         }),
       ]);
@@ -59,48 +58,94 @@ const obtener = async (req, res, next) => {
       });
     }
 
-    /* ─── DOCENTE / BACTERIÓLOGO / ADMIN ─── */
-    const esAdminEfectivo = rol === 'admin' || esAdminDocente;
+    const includeActividad = {
+      estudiante: {
+        include: { usuario: { select: { nombre: true, apellido: true } } },
+      },
+      examenes: true,
+    };
 
-    const whereEstudiante = esAdminEfectivo ? {}
-      : rol === 'docente' ? { docenteSupervisorId: usuarioId }
-      : { bacteriologoSupervisorId: usuarioId };
+    /* ─── ADMIN ─── */
+    if (rol === 'admin' || esAdminDocente) {
+      const [totalEstudiantes, totalUsuarios, pendientesFirma, firmadosMes, actividadReciente] = await Promise.all([
+        prisma.estudiante.count({ where: { cierreId: null } }),
+        prisma.usuario.count({ where: { activo: true } }),
+        prisma.registroDiario.count({ where: { firmado: false, cierreId: null } }),
+        prisma.registroDiario.count({ where: { firmado: true, fecha: { gte: inicioMes }, cierreId: null } }),
+        prisma.registroDiario.findMany({
+          where: { cierreId: null },
+          orderBy: { fecha: 'desc' },
+          take: 6,
+          include: includeActividad,
+        }),
+      ]);
 
-    const whereRegistro = esAdminEfectivo ? {} : { estudiante: whereEstudiante };
+      return success(res, { totalEstudiantes, totalUsuarios, pendientesFirma, firmadosMes, actividadReciente });
+    }
 
-    const wherePendiente = esAdminEfectivo
-      ? { firmado: false }
-      : rol === 'docente'
-      ? { firmado: false, firmaDocente: null, estudiante: whereEstudiante }
-      : { firmado: false, firmaBacteriologo: null, estudiante: whereEstudiante };
+    /* ─── DOCENTE ─── */
+    if (rol === 'docente') {
+      const whereReg = { docenteSupervisorId: usuarioId, cierreId: null };
 
-    const [totalEstudiantes, pendientesFirma, firmadosMes, actividadReciente] = await Promise.all([
-      prisma.estudiante.count({
-        where: { ...whereEstudiante, usuario: { activo: true } },
-      }),
-      prisma.registroDiario.count({ where: wherePendiente }),
-      prisma.registroDiario.count({
-        where: { ...whereRegistro, firmado: true, fecha: { gte: inicioMes } },
-      }),
-      prisma.registroDiario.findMany({
-        where: whereRegistro,
-        orderBy: { fecha: 'desc' },
-        take: 6,
-        include: {
-          estudiante: {
-            include: { usuario: { select: { nombre: true, apellido: true } } },
-          },
-          examenes: true,
-        },
-      }),
-    ]);
+      const [estudiantesUnicos, pendientesFirma, firmadosMes, actividadReciente] = await Promise.all([
+        prisma.registroDiario.groupBy({
+          by: ['estudianteId'],
+          where: whereReg,
+        }).then((r) => r.length),
+        prisma.registroDiario.count({
+          where: { ...whereReg, firmaDocente: null, firmado: false },
+        }),
+        prisma.registroDiario.count({
+          where: { ...whereReg, firmado: true, fecha: { gte: inicioMes } },
+        }),
+        prisma.registroDiario.findMany({
+          where: whereReg,
+          orderBy: { fecha: 'desc' },
+          take: 6,
+          include: includeActividad,
+        }),
+      ]);
 
-    return success(res, {
-      totalEstudiantes,
-      pendientesFirma,
-      firmadosMes,
-      actividadReciente,
-    });
+      return success(res, {
+        totalEstudiantes: estudiantesUnicos,
+        pendientesFirma,
+        firmadosMes,
+        actividadReciente,
+      });
+    }
+
+    /* ─── BACTERIÓLOGO ─── */
+    if (rol === 'bacteriologo') {
+      const whereReg = { bacteriologoSupervisorId: usuarioId, cierreId: null };
+
+      const [estudiantesUnicos, pendientesFirma, firmadosMes, actividadReciente] = await Promise.all([
+        prisma.registroDiario.groupBy({
+          by: ['estudianteId'],
+          where: whereReg,
+        }).then((r) => r.length),
+        prisma.registroDiario.count({
+          where: { ...whereReg, firmaBacteriologo: null, firmado: false },
+        }),
+        prisma.registroDiario.count({
+          where: { ...whereReg, firmado: true, fecha: { gte: inicioMes } },
+        }),
+        prisma.registroDiario.findMany({
+          where: whereReg,
+          orderBy: { fecha: 'desc' },
+          take: 6,
+          include: includeActividad,
+        }),
+      ]);
+
+      return success(res, {
+        totalEstudiantes: estudiantesUnicos,
+        pendientesFirma,
+        firmadosMes,
+        actividadReciente,
+      });
+    }
+
+    return success(res, {});
   } catch (err) {
     next(err);
   }

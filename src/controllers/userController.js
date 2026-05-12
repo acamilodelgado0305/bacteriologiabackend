@@ -120,6 +120,42 @@ const crearUsuario = async (req, res, next) => {
   }
 };
 
+const eliminarUsuario = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (req.usuario.id === id) return error(res, 'No puedes eliminar tu propio usuario', 400);
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id },
+      include: { perfil: { select: { id: true } } },
+    });
+    if (!usuario) return error(res, 'Usuario no encontrado', 404);
+
+    await prisma.$transaction(async (tx) => {
+      // Desasociar al usuario de registros donde fue supervisor
+      await tx.registroDiario.updateMany({
+        where: { docenteSupervisorId: id },
+        data: { docenteSupervisorId: null },
+      });
+      await tx.registroDiario.updateMany({
+        where: { bacteriologoSupervisorId: id },
+        data: { bacteriologoSupervisorId: null },
+      });
+
+      if (usuario.perfil) {
+        // RegistroExamen se elimina en cascada al borrar RegistroDiario
+        await tx.registroDiario.deleteMany({ where: { estudianteId: usuario.perfil.id } });
+      }
+      await tx.usuario.delete({ where: { id } });
+    });
+
+    return success(res, null, 'Usuario eliminado');
+  } catch (err) {
+    if (err.code === 'P2025') return error(res, 'Usuario no encontrado', 404);
+    next(err);
+  }
+};
+
 const entidadesDeUsuario = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -138,4 +174,4 @@ const entidadesDeUsuario = async (req, res, next) => {
   }
 };
 
-module.exports = { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario, entidadesDeUsuario };
+module.exports = { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario, entidadesDeUsuario, eliminarUsuario };

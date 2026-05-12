@@ -204,8 +204,8 @@ const miHistorial = async (req, res, next) => {
 // Listar todos los registros (admin/docente)
 const listar = async (req, res, next) => {
   try {
-    const { estudianteId, desde, hasta } = req.query;
-    const where = { cierreId: null };
+    const { estudianteId, desde, hasta, cierreId } = req.query;
+    const where = { cierreId: cierreId || null };
     if (estudianteId) where.estudianteId = estudianteId;
     if (desde || hasta) {
       where.fecha = {};

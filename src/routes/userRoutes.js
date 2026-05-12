@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { body } = require('express-validator');
-const { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario, entidadesDeUsuario } = require('../controllers/userController');
+const { listarUsuarios, obtenerUsuario, actualizarUsuario, cambiarPassword, crearUsuario, entidadesDeUsuario, eliminarUsuario } = require('../controllers/userController');
 const { autenticar, autorizar } = require('../middleware/auth');
 const { validar } = require('../middleware/validate');
 
@@ -40,5 +40,7 @@ router.patch('/:id/password',
   validar,
   cambiarPassword
 );
+
+router.delete('/:id', autorizar('admin'), eliminarUsuario);
 
 module.exports = router;
