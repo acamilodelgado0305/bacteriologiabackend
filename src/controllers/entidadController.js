@@ -3,18 +3,26 @@ const { success, error } = require('../utils/response');
 
 const listar = async (req, res, next) => {
   try {
-    const { activo } = req.query;
+    const { activo, semestre } = req.query;
     const where = {};
     if (activo !== undefined) where.activo = activo === 'true';
+    if (semestre) where.estudiantes = { some: { cierreId: null, semestre } };
 
     const entidades = await prisma.entidad.findMany({
       where,
       orderBy: { nombre: 'asc' },
       include: {
         _count: { select: { estudiantes: { where: { cierreId: null } }, examenes: true } },
+        estudiantes: { where: { cierreId: null }, select: { semestre: true }, take: 1 },
       },
     });
-    return success(res, entidades);
+
+    const resultado = entidades.map(({ estudiantes, ...e }) => ({
+      ...e,
+      semestreActivo: estudiantes[0]?.semestre ?? null,
+    }));
+
+    return success(res, resultado);
   } catch (err) {
     next(err);
   }

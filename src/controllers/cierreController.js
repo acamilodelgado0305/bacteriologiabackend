@@ -8,16 +8,39 @@ const cerrar = async (req, res, next) => {
     const {
       docentes: conservarDocentes = true,
       supervisores: conservarSupervisores = true,
-      estudiantes: conservarEstudiantes = true,
+      estudiantesOpcion = 'todos',
+      estudiantesIds = [],
+      semestreDestino = null,
     } = conservar;
 
     if (!nombre?.trim()) return error(res, 'El nombre del cierre es requerido', 400);
 
-    const totalEstudiantes = await prisma.estudiante.count({ where: { cierreId: null } });
-    if (totalEstudiantes === 0) {
-      return error(res, 'No hay estudiantes activos para cerrar', 400);
-    }
+    const totalActivos = await prisma.estudiante.count({ where: { cierreId: null } });
+    if (totalActivos === 0) return error(res, 'No hay estudiantes activos para cerrar', 400);
+
     const totalRegistros = await prisma.registroDiario.count({ where: { cierreId: null } });
+
+    // Determinar qué estudiantes se archivan (los NO conservados).
+    // Los conservados quedan con cierreId: null → siguen visibles en su entidad.
+    let whereArchivar = null;
+    if (estudiantesOpcion === 'ninguno') {
+      whereArchivar = { cierreId: null };
+    } else if (estudiantesOpcion === 'noveno') {
+      // conservar noveno → archivar decimo
+      whereArchivar = { cierreId: null, semestre: 'decimo' };
+    } else if (estudiantesOpcion === 'decimo') {
+      // conservar decimo → archivar noveno
+      whereArchivar = { cierreId: null, semestre: 'noveno' };
+    } else if (estudiantesOpcion === 'manual') {
+      whereArchivar = estudiantesIds.length > 0
+        ? { cierreId: null, id: { notIn: estudiantesIds } }
+        : { cierreId: null };
+    }
+    // 'todos': whereArchivar = null → ningún perfil de estudiante se archiva
+
+    const totalEstudiantes = whereArchivar
+      ? await prisma.estudiante.count({ where: whereArchivar })
+      : 0;
 
     const resultado = await prisma.$transaction(async (tx) => {
       const nuevoCierre = await tx.cierreSemestre.create({
@@ -30,15 +53,27 @@ const cerrar = async (req, res, next) => {
         },
       });
 
-      await tx.estudiante.updateMany({
-        where: { cierreId: null },
-        data: { cierreId: nuevoCierre.id },
-      });
+      // Archivar solo los perfiles NO conservados
+      if (whereArchivar) {
+        await tx.estudiante.updateMany({
+          where: whereArchivar,
+          data: { cierreId: nuevoCierre.id },
+        });
+      }
 
+      // Archivar todos los registros diarios (pizarra limpia para el próximo semestre)
       await tx.registroDiario.updateMany({
         where: { cierreId: null },
         data: { cierreId: nuevoCierre.id },
       });
+
+      // Actualizar semestre de los estudiantes que se conservan (cierreId sigue null)
+      if (semestreDestino && estudiantesOpcion !== 'ninguno') {
+        await tx.estudiante.updateMany({
+          where: { cierreId: null },
+          data: { semestre: semestreDestino },
+        });
+      }
 
       const desactivados = { docentes: 0, supervisores: 0, estudiantes: 0 };
 
@@ -58,17 +93,15 @@ const cerrar = async (req, res, next) => {
         desactivados.supervisores = r.count;
       }
 
-      if (!conservarEstudiantes) {
-        const estudiantesArchivados = await tx.estudiante.findMany({
+      // Desactivar cuentas de los estudiantes archivados
+      if (whereArchivar) {
+        const archivados = await tx.estudiante.findMany({
           where: { cierreId: nuevoCierre.id },
           select: { usuarioId: true },
         });
-        if (estudiantesArchivados.length > 0) {
+        if (archivados.length > 0) {
           const r = await tx.usuario.updateMany({
-            where: {
-              id: { in: estudiantesArchivados.map((e) => e.usuarioId) },
-              activo: true,
-            },
+            where: { id: { in: archivados.map((e) => e.usuarioId) }, activo: true },
             data: { activo: false },
           });
           desactivados.estudiantes = r.count;

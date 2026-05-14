@@ -1,6 +1,6 @@
 const router = require('express').Router({ mergeParams: true });
 const { body } = require('express-validator');
-const { listarPorEntidad, crear, actualizar } = require('../controllers/examenController');
+const { listarPorEntidad, crear, actualizar, importar } = require('../controllers/examenController');
 const { autenticar, autorizar } = require('../middleware/auth');
 const { validar } = require('../middleware/validate');
 
@@ -16,5 +16,12 @@ router.post('/',
 );
 
 router.put('/:examenId', autorizar('admin', 'docente'), actualizar);
+
+router.post('/importar',
+  autorizar('admin', 'docente'),
+  [body('origenId').notEmpty().withMessage('origenId requerido')],
+  validar,
+  importar
+);
 
 module.exports = router;
