@@ -100,4 +100,30 @@ const importar = async (req, res, next) => {
   }
 };
 
-module.exports = { listarPorEntidad, crear, actualizar, importar };
+const eliminar = async (req, res, next) => {
+  try {
+    const { entidadId, examenId } = req.params;
+
+    const examen = await prisma.examen.findUnique({ where: { id: examenId } });
+    if (!examen) return error(res, 'Examen no encontrado', 404);
+    if (examen.entidadId !== entidadId) return error(res, 'El examen no pertenece a esta entidad', 403);
+
+    // Verificar si el examen ha sido usado en algún registro
+    const usos = await prisma.registroExamen.count({ where: { examenId } });
+    if (usos > 0) {
+      return error(
+        res,
+        `No se puede eliminar: este examen aparece en ${usos} registro${usos !== 1 ? 's' : ''} de estudiantes.`,
+        409,
+      );
+    }
+
+    await prisma.examen.delete({ where: { id: examenId } });
+    return success(res, null, 'Examen eliminado');
+  } catch (err) {
+    if (err.code === 'P2025') return error(res, 'Examen no encontrado', 404);
+    next(err);
+  }
+};
+
+module.exports = { listarPorEntidad, crear, actualizar, importar, eliminar };

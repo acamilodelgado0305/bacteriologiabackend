@@ -76,8 +76,8 @@ const guardar = async (req, res, next) => {
       if (registro?.firmado) {
         throw Object.assign(new Error('Este registro ya fue firmado y no puede modificarse'), { status: 400 });
       }
-      if (registro?.firmaEstudiante) {
-        throw Object.assign(new Error('Ya firmaste este registro. No puedes modificarlo.'), { status: 400 });
+      if (registro?.firmaDocente) {
+        throw Object.assign(new Error('El docente ya firmó este registro, no puede modificarse'), { status: 400 });
       }
 
       if (registro) {
@@ -90,6 +90,9 @@ const guardar = async (req, res, next) => {
             horaSalida: horaSalida || null,
             docenteSupervisorId: docenteSupervisorId || null,
             bacteriologoSupervisorId: bacteriologoSupervisorId || null,
+            // Al editar, la firma previa del estudiante queda invalidada
+            firmaEstudiante: null,
+            firmaEstudianteFecha: null,
           },
         });
       } else {
