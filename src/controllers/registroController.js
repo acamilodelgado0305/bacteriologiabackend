@@ -241,7 +241,7 @@ const listar = async (req, res, next) => {
 const firmar = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firma, nombreFirmante } = req.body;
+    const { firma, nombreFirmante, observacionesDocente } = req.body;
     const { id: usuarioId, rol } = req.usuario;
 
     if (!firma) return error(res, 'La firma es requerida', 400);
@@ -266,6 +266,7 @@ const firmar = async (req, res, next) => {
       if (registro.firmaDocente) return error(res, 'El docente ya firmó este registro', 400);
       data.firmaDocente = firma;
       data.firmaDocenteFecha = new Date();
+      if (observacionesDocente?.trim()) data.observacionesDocente = observacionesDocente.trim();
 
     } else if (rol === 'bacteriologo') {
       if (registro.bacteriologoSupervisorId !== usuarioId)

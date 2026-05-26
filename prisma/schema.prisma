@@ -135,6 +135,7 @@ model RegistroDiario {
   firmaEstudianteFecha     DateTime? @map("firma_estudiante_fecha")
   firmaDocente                  String?   @map("firma_docente")
   firmaDocenteFecha             DateTime? @map("firma_docente_fecha")
+  observacionesDocente          String?   @map("observaciones_docente")
   nombreFirmanteDocente         String?   @map("nombre_firmante_docente")
   firmaBacteriologo             String?   @map("firma_bacteriologo")
   firmaBacteriologoFecha        DateTime? @map("firma_bacteriologo_fecha")
