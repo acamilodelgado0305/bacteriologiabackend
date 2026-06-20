@@ -128,6 +128,7 @@ model RegistroDiario {
   bacteriologoSupervisorId String?   @map("bacteriologo_supervisor_id")
   cierreId                 String?   @map("cierre_id")
   fecha                    DateTime  @db.Date
+  noAsistio                Boolean   @default(false) @map("no_asistio")
   horaEntrada              String?   @map("hora_entrada") @db.VarChar(5)
   horaSalida               String?   @map("hora_salida")  @db.VarChar(5)
   observaciones            String?

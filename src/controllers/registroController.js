@@ -40,8 +40,10 @@ const guardar = async (req, res, next) => {
   try {
     const {
       fecha, examenes = [], observaciones, firma, horaEntrada, horaSalida,
-      docenteSupervisorId, bacteriologoSupervisorId,
+      docenteSupervisorId, bacteriologoSupervisorId, noAsistio = false,
     } = req.body;
+
+    const ausente = !!noAsistio;
 
     const estudiante = await prisma.estudiante.findUnique({
       where: { usuarioId: req.usuario.id },
@@ -50,16 +52,16 @@ const guardar = async (req, res, next) => {
     if (!estudiante) return error(res, 'Perfil de estudiante no encontrado', 404);
     if (!estudiante.entidadId) return error(res, 'No tienes una entidad asignada', 400);
 
-    // Validar que el docente pertenece a la entidad (si se envía)
-    if (docenteSupervisorId) {
+    // Validar que el docente pertenece a la entidad (si se envía y el día sí hubo asistencia)
+    if (!ausente && docenteSupervisorId) {
       const asociacion = await prisma.entidadPersonal.findUnique({
         where: { entidadId_usuarioId: { entidadId: estudiante.entidadId, usuarioId: docenteSupervisorId } },
       });
       if (!asociacion) return error(res, 'El docente seleccionado no pertenece a esta entidad', 400);
     }
 
-    // Validar que el bacteriólogo pertenece a la entidad (si se envía)
-    if (bacteriologoSupervisorId) {
+    // Validar que el bacteriólogo pertenece a la entidad (si se envía y el día sí hubo asistencia)
+    if (!ausente && bacteriologoSupervisorId) {
       const asociacion = await prisma.entidadPersonal.findUnique({
         where: { entidadId_usuarioId: { entidadId: estudiante.entidadId, usuarioId: bacteriologoSupervisorId } },
       });
@@ -85,11 +87,12 @@ const guardar = async (req, res, next) => {
         registro = await tx.registroDiario.update({
           where: { id: registro.id },
           data: {
+            noAsistio: ausente,
             observaciones: observaciones || null,
-            horaEntrada: horaEntrada || null,
-            horaSalida: horaSalida || null,
-            docenteSupervisorId: docenteSupervisorId || null,
-            bacteriologoSupervisorId: bacteriologoSupervisorId || null,
+            horaEntrada: ausente ? null : (horaEntrada || null),
+            horaSalida: ausente ? null : (horaSalida || null),
+            docenteSupervisorId: ausente ? null : (docenteSupervisorId || null),
+            bacteriologoSupervisorId: ausente ? null : (bacteriologoSupervisorId || null),
             // Al editar, la firma previa del estudiante queda invalidada
             firmaEstudiante: null,
             firmaEstudianteFecha: null,
@@ -101,16 +104,17 @@ const guardar = async (req, res, next) => {
             id: randomUUID(),
             estudianteId: estudiante.id,
             fecha: fechaDate,
-            horaEntrada: horaEntrada || null,
-            horaSalida: horaSalida || null,
+            noAsistio: ausente,
+            horaEntrada: ausente ? null : (horaEntrada || null),
+            horaSalida: ausente ? null : (horaSalida || null),
             observaciones: observaciones || null,
-            docenteSupervisorId: docenteSupervisorId || null,
-            bacteriologoSupervisorId: bacteriologoSupervisorId || null,
+            docenteSupervisorId: ausente ? null : (docenteSupervisorId || null),
+            bacteriologoSupervisorId: ausente ? null : (bacteriologoSupervisorId || null),
           },
         });
       }
 
-      const examenesValidos = examenes.filter((e) => Number(e.cantidad) > 0);
+      const examenesValidos = ausente ? [] : examenes.filter((e) => Number(e.cantidad) > 0);
       if (examenesValidos.length > 0) {
         await tx.registroExamen.createMany({
           data: examenesValidos.map((e) => ({
