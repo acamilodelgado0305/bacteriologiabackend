@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { success } = require('../utils/response');
+const { omitirFirmas, conPresenciaFirmas } = require('../utils/registroFirmas');
 
 const sumEx = (registros) =>
   registros.reduce((s, r) => s + (r.examenes || []).reduce((ss, e) => ss + e.cantidad, 0), 0);
@@ -28,14 +29,17 @@ const obtener = async (req, res, next) => {
       const [regHoy, regsSemana, regsMes, diasEnPractica, actividadReciente] = await Promise.all([
         prisma.registroDiario.findUnique({
           where: { estudianteId_fecha: { estudianteId: estudiante.id, fecha: fechaHoy } },
+          omit: omitirFirmas,
           include: { examenes: true },
         }),
         prisma.registroDiario.findMany({
           where: { estudianteId: estudiante.id, fecha: { gte: inicioSemana } },
+          omit: omitirFirmas,
           include: { examenes: true },
         }),
         prisma.registroDiario.findMany({
           where: { estudianteId: estudiante.id, fecha: { gte: inicioMes } },
+          omit: omitirFirmas,
           include: { examenes: true },
         }),
         prisma.registroDiario.count({ where: { estudianteId: estudiante.id } }),
@@ -43,6 +47,7 @@ const obtener = async (req, res, next) => {
           where: { estudianteId: estudiante.id },
           orderBy: { fecha: 'desc' },
           take: 5,
+          omit: omitirFirmas,
           include: {
             examenes: { include: { examen: { select: { nombre: true, area: true } } } },
           },
@@ -54,7 +59,7 @@ const obtener = async (req, res, next) => {
         examenesSemana: sumEx(regsSemana),
         examenesMes: sumEx(regsMes),
         diasEnPractica,
-        actividadReciente,
+        actividadReciente: actividadReciente.map(conPresenciaFirmas),
       });
     }
 
@@ -76,11 +81,12 @@ const obtener = async (req, res, next) => {
           where: { cierreId: null },
           orderBy: { fecha: 'desc' },
           take: 6,
+          omit: omitirFirmas,
           include: includeActividad,
         }),
       ]);
 
-      return success(res, { totalEstudiantes, totalUsuarios, pendientesFirma, firmadosMes, actividadReciente });
+      return success(res, { totalEstudiantes, totalUsuarios, pendientesFirma, firmadosMes, actividadReciente: actividadReciente.map(conPresenciaFirmas) });
     }
 
     /* ─── DOCENTE ─── */
@@ -102,6 +108,7 @@ const obtener = async (req, res, next) => {
           where: whereReg,
           orderBy: { fecha: 'desc' },
           take: 6,
+          omit: omitirFirmas,
           include: includeActividad,
         }),
       ]);
@@ -110,7 +117,7 @@ const obtener = async (req, res, next) => {
         totalEstudiantes: estudiantesUnicos,
         pendientesFirma,
         firmadosMes,
-        actividadReciente,
+        actividadReciente: actividadReciente.map(conPresenciaFirmas),
       });
     }
 
@@ -133,6 +140,7 @@ const obtener = async (req, res, next) => {
           where: whereReg,
           orderBy: { fecha: 'desc' },
           take: 6,
+          omit: omitirFirmas,
           include: includeActividad,
         }),
       ]);
@@ -141,7 +149,7 @@ const obtener = async (req, res, next) => {
         totalEstudiantes: estudiantesUnicos,
         pendientesFirma,
         firmadosMes,
-        actividadReciente,
+        actividadReciente: actividadReciente.map(conPresenciaFirmas),
       });
     }
 

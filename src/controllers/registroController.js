@@ -2,6 +2,8 @@ const { randomUUID } = require('crypto');
 const prisma = require('../config/prisma');
 const { success, error } = require('../utils/response');
 
+const { omitirFirmas, conPresenciaFirmas } = require('../utils/registroFirmas');
+
 const supervisorSelect = { select: { id: true, nombre: true, apellido: true } };
 
 // Perfil completo del estudiante actual (entidad + examenes disponibles + personal de la entidad)
@@ -52,8 +54,9 @@ const guardar = async (req, res, next) => {
     if (!estudiante) return error(res, 'Perfil de estudiante no encontrado', 404);
     if (!estudiante.entidadId) return error(res, 'No tienes una entidad asignada', 400);
 
-    // Validar que el docente pertenece a la entidad (si se envía y el día sí hubo asistencia)
-    if (!ausente && docenteSupervisorId) {
+    // Validar que el docente pertenece a la entidad (también aplica a las inasistencias,
+    // que deben ser revisadas y firmadas por un docente)
+    if (docenteSupervisorId) {
       const asociacion = await prisma.entidadPersonal.findUnique({
         where: { entidadId_usuarioId: { entidadId: estudiante.entidadId, usuarioId: docenteSupervisorId } },
       });
@@ -91,7 +94,7 @@ const guardar = async (req, res, next) => {
             observaciones: observaciones || null,
             horaEntrada: ausente ? null : (horaEntrada || null),
             horaSalida: ausente ? null : (horaSalida || null),
-            docenteSupervisorId: ausente ? null : (docenteSupervisorId || null),
+            docenteSupervisorId: docenteSupervisorId || null,
             bacteriologoSupervisorId: ausente ? null : (bacteriologoSupervisorId || null),
             // Al editar, la firma previa del estudiante queda invalidada
             firmaEstudiante: null,
@@ -108,7 +111,7 @@ const guardar = async (req, res, next) => {
             horaEntrada: ausente ? null : (horaEntrada || null),
             horaSalida: ausente ? null : (horaSalida || null),
             observaciones: observaciones || null,
-            docenteSupervisorId: ausente ? null : (docenteSupervisorId || null),
+            docenteSupervisorId: docenteSupervisorId || null,
             bacteriologoSupervisorId: ausente ? null : (bacteriologoSupervisorId || null),
           },
         });
@@ -135,6 +138,7 @@ const guardar = async (req, res, next) => {
 
       return tx.registroDiario.findUnique({
         where: { id: registro.id },
+        omit: omitirFirmas,
         include: {
           docenteSupervisor: supervisorSelect,
           bacteriologoSupervisor: supervisorSelect,
@@ -145,7 +149,7 @@ const guardar = async (req, res, next) => {
       });
     });
 
-    return success(res, resultado, firma ? 'Registro guardado y firmado' : 'Registro guardado');
+    return success(res, conPresenciaFirmas(resultado), firma ? 'Registro guardado y firmado' : 'Registro guardado');
   } catch (err) {
     if (err.status) return error(res, err.message, err.status);
     next(err);
@@ -167,6 +171,7 @@ const obtenerPorFecha = async (req, res, next) => {
 
     const registro = await prisma.registroDiario.findFirst({
       where: { estudianteId: estudiante.id, fecha: fechaDate, cierreId: null },
+      omit: omitirFirmas,
       include: {
         docenteSupervisor: supervisorSelect,
         bacteriologoSupervisor: supervisorSelect,
@@ -176,7 +181,7 @@ const obtenerPorFecha = async (req, res, next) => {
       },
     });
 
-    return success(res, registro);
+    return success(res, conPresenciaFirmas(registro));
   } catch (err) {
     next(err);
   }
@@ -193,6 +198,7 @@ const miHistorial = async (req, res, next) => {
     const registros = await prisma.registroDiario.findMany({
       where: { estudianteId: estudiante.id, cierreId: null },
       orderBy: { fecha: 'desc' },
+      omit: omitirFirmas,
       include: {
         docenteSupervisor: supervisorSelect,
         bacteriologoSupervisor: supervisorSelect,
@@ -202,7 +208,7 @@ const miHistorial = async (req, res, next) => {
       },
     });
 
-    return success(res, registros);
+    return success(res, registros.map(conPresenciaFirmas));
   } catch (err) {
     next(err);
   }
@@ -224,6 +230,7 @@ const listar = async (req, res, next) => {
     const registros = await prisma.registroDiario.findMany({
       where,
       orderBy: { fecha: 'desc' },
+      omit: omitirFirmas,
       include: {
         estudiante: {
           include: {
@@ -239,7 +246,7 @@ const listar = async (req, res, next) => {
       },
     });
 
-    return success(res, registros);
+    return success(res, registros.map(conPresenciaFirmas));
   } catch (err) {
     next(err);
   }
@@ -295,7 +302,7 @@ const firmar = async (req, res, next) => {
       actualizado = await prisma.registroDiario.update({ where: { id }, data: { firmado: true } });
     }
 
-    return success(res, actualizado, 'Firma guardada exitosamente');
+    return success(res, conPresenciaFirmas(actualizado), 'Firma guardada exitosamente');
   } catch (err) {
     next(err);
   }
@@ -318,6 +325,7 @@ const pendientesFirma = async (req, res, next) => {
     const registros = await prisma.registroDiario.findMany({
       where,
       orderBy: { fecha: 'desc' },
+      omit: omitirFirmas,
       include: {
         estudiante: {
           include: {
@@ -333,7 +341,7 @@ const pendientesFirma = async (req, res, next) => {
       },
     });
 
-    return success(res, registros);
+    return success(res, registros.map(conPresenciaFirmas));
   } catch (err) {
     next(err);
   }
@@ -356,6 +364,7 @@ const misSupervisados = async (req, res, next) => {
     const registros = await prisma.registroDiario.findMany({
       where,
       orderBy: { fecha: 'desc' },
+      omit: omitirFirmas,
       include: {
         estudiante: {
           include: {
@@ -371,7 +380,7 @@ const misSupervisados = async (req, res, next) => {
       },
     });
 
-    return success(res, registros);
+    return success(res, registros.map(conPresenciaFirmas));
   } catch (err) {
     next(err);
   }

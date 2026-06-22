@@ -1,6 +1,7 @@
 const { randomUUID } = require('crypto');
 const prisma = require('../config/prisma');
 const { success, error } = require('../utils/response');
+const { omitirFirmas, conPresenciaFirmas } = require('../utils/registroFirmas');
 
 const cerrar = async (req, res, next) => {
   try {
@@ -143,6 +144,7 @@ const obtener = async (req, res, next) => {
         registros: {
           where: { cierreId: id },
           orderBy: { fecha: 'desc' },
+          omit: omitirFirmas,
           include: {
             docenteSupervisor: { select: { id: true, nombre: true, apellido: true } },
             bacteriologoSupervisor: { select: { id: true, nombre: true, apellido: true } },
@@ -182,7 +184,7 @@ const obtener = async (req, res, next) => {
 
       return {
         estudiante: est,
-        registros: est.registros,
+        registros: est.registros.map(conPresenciaFirmas),
         totalExamenes: est.registros.reduce(
           (sum, r) => sum + r.examenes.reduce((s, ex) => s + ex.cantidad, 0),
           0
